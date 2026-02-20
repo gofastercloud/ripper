@@ -57,6 +57,13 @@ uv run ripper
 
 `uv` handles everything — the right Python version, dependencies (`rich`, `Pillow`), and execution. No virtualenv, no `pip install`, no setup steps. Just `uv run ripper`.
 
+Or install it globally so `ripper` works from anywhere:
+
+```bash
+uv tool install .
+ripper --status
+```
+
 The first run will ask you a few questions (where to put files, API keys, encoder preference) and save everything to `~/.config/ripper/config.json`.
 
 ## Usage
@@ -136,6 +143,7 @@ Settings live at `~/.config/ripper/config.json`. You can:
 - Run `--show-config` to see current settings
 - Edit the JSON directly
 - Set `TMDB_API_KEY` and `JELLYFIN_API_KEY` as environment variables (overrides config)
+- Set `audio_lang` to control which audio languages are included (default: `"eng,und"` — English and untagged tracks)
 
 ## Encoding
 

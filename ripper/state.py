@@ -45,6 +45,7 @@ CONFIG = {
     "quality_rf_bd": 52,
     "quality_rf_uhd": 50,
     "audio_mode": "copy,aac",
+    "audio_lang": "eng,und",
 
     # Polling interval for --watch mode (seconds)
     "poll_interval": 10,

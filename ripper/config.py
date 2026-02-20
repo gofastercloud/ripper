@@ -29,7 +29,7 @@ _CONFIGURABLE_KEYS = {
     "encoder", "quality_rf", "encoder_preset", "encoder_tune",
     "encoder_profile", "encoder_level", "hq_mode", "output_format",
     "viewing_profile", "quality_rf_dvd", "quality_rf_bd", "quality_rf_uhd",
-    "audio_mode",
+    "audio_mode", "audio_lang",
     "poll_interval",
     "tmdb_api_key", "metadata_cache",
     "jellyfin_url", "jellyfin_api_key",
