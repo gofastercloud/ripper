@@ -188,6 +188,11 @@ class RipperTUI:
         # Poster art (Rich renderable or None)
         self.poster_art = None
 
+        # Disc-level ETA tracking
+        self.disc_start_time = None      # Set when pipeline starts
+        self._disc_eta_str = ""          # Cached formatted ETA
+        self._last_eta_update = 0.0      # Monotonic time of last ETA recalc
+
         # Log messages (rolling buffer)
         self._log_lines = []
         self._max_log = 8
@@ -239,6 +244,69 @@ class RipperTUI:
         """Set the poster art renderable for the TUI."""
         self.poster_art = poster_renderable
         self._refresh()
+
+    def start_disc_timer(self):
+        """Mark the start of the disc pipeline for ETA calculation."""
+        self.disc_start_time = time.monotonic()
+        self._disc_eta_str = ""
+        self._last_eta_update = 0.0
+
+    def _disc_overall_pct(self):
+        """Calculate overall disc progress (0-100)."""
+        if self.episodes:
+            # TV: each episode is an equal slice, split half rip / half encode
+            n = len(self.episodes)
+            if n == 0:
+                return 0.0
+            completed = 0.0
+            for ep in self.episodes:
+                if ep["status"] == "done":
+                    completed += 2.0        # rip + encode both done
+                elif ep["status"] == "failed":
+                    completed += 2.0        # count as done for ETA purposes
+                elif ep["status"] == "encoding":
+                    completed += 1.0        # rip done
+                    completed += self.encode_pct / 100.0  # partial encode
+                elif ep["status"] == "ripped":
+                    completed += 1.0        # rip done, encode pending
+                elif ep["status"] == "ripping":
+                    completed += self.rip_pct / 100.0     # partial rip
+            return (completed / (n * 2.0)) * 100.0
+        else:
+            # Movie: rip is 0-50%, encode is 50-100%
+            return self.rip_pct * 0.5 + self.encode_pct * 0.5
+
+    def _format_duration(self, seconds):
+        """Format seconds into a human-readable duration."""
+        if seconds < 60:
+            return f"{int(seconds)}s"
+        elif seconds < 3600:
+            m, s = divmod(int(seconds), 60)
+            return f"{m}m {s:02d}s"
+        else:
+            h, rem = divmod(int(seconds), 3600)
+            m = rem // 60
+            return f"{h}h {m:02d}m"
+
+    def _get_disc_eta(self):
+        """Get cached disc ETA string, recalculating every 30 seconds."""
+        now = time.monotonic()
+        if not self.disc_start_time:
+            return ""
+        elapsed = now - self.disc_start_time
+        if elapsed < 5:
+            return ""  # Too early to estimate
+
+        # Recalculate every 30 seconds (or on first call)
+        if now - self._last_eta_update >= 30 or not self._disc_eta_str:
+            pct = self._disc_overall_pct()
+            if pct > 0.5:  # Need some progress before estimating
+                remaining = elapsed * (100.0 - pct) / pct
+                self._disc_eta_str = self._format_duration(remaining)
+            else:
+                self._disc_eta_str = "calculating..."
+            self._last_eta_update = now
+        return self._disc_eta_str
 
     def set_episodes(self, episodes):
         """
@@ -346,6 +414,18 @@ class RipperTUI:
         """Render the rip and encode progress bars."""
         table = Table(box=None, show_header=False, expand=True, padding=(1, 2))
         table.add_column(ratio=1)
+
+        # Disc-level ETA (prominent, at top)
+        if self.disc_start_time:
+            elapsed = time.monotonic() - self.disc_start_time
+            elapsed_str = self._format_duration(elapsed)
+            disc_eta = self._get_disc_eta()
+            overall_pct = self._disc_overall_pct()
+            if disc_eta:
+                table.add_row(f"[bold magenta]DISC[/]  [bold]{overall_pct:4.0f}%[/]  elapsed {elapsed_str}  ·  [bold]~{disc_eta} remaining[/]")
+            else:
+                table.add_row(f"[bold magenta]DISC[/]  [bold]{overall_pct:4.0f}%[/]  elapsed {elapsed_str}")
+            table.add_row("")
 
         # Rip progress
         rip_bar = self._bar_string(self.rip_pct, "green")
@@ -925,13 +1005,12 @@ def makemkv_progress(line):
                     tui.update_rip(pct)
                 else:
                     print(f"\r  Ripping: {pct:5.1f}% complete", end="", flush=True)
-    # PRGT: — current task name
+    # PRGT: — current task name (only used in non-TUI mode;
+    # TUI keeps the episode-specific label set by the pipeline)
     elif line.startswith("PRGT:"):
         task = line.split(",")[-1].strip('"')
         if task:
-            if tui and tui.enabled:
-                tui.update_rip(tui.rip_pct, task=task)
-            else:
+            if not (tui and tui.enabled):
                 print(f"\r  {task:<60}", end="", flush=True)
     # MSG: — status messages (only show important ones)
     elif line.startswith("MSG:") and any(kw in line for kw in ["error", "Error", "LibreDrive"]):
@@ -2458,6 +2537,8 @@ def _rip_tv_disc_parallel(title_name, season_num, start_episode, episodes_info,
             encode_queue.put((latest, ep_num))
 
     log.info(f"\n  [RIP] Finished — {len(ripped)} episodes ripped")
+    if tui and tui.enabled:
+        tui.update_rip(100.0, task="All done")
     return ripped
 
 
@@ -3012,6 +3093,7 @@ def run_pipeline(title_name=None, year=None, media_type=None,
                 tui.set_poster(art)
 
         tui.start()
+        tui.start_disc_timer()
 
     try:
         return _run_pipeline_inner(
