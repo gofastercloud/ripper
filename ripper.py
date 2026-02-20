@@ -101,10 +101,13 @@ console = Console()
 _poster_cache = {}  # keyed by poster_path
 
 
-def poster_to_ascii(poster_path, width=20, height=40):
+def poster_to_ascii(poster_path, width=None, height=None):
     """
-    Download a TMDb poster thumbnail and convert to Rich Text using half-block
+    Download a TMDb poster and convert to Rich Text using half-block
     characters (▀) for double vertical resolution with true-color output.
+
+    If width/height are None, auto-sizes to fill the poster panel based
+    on the current terminal dimensions.
 
     Returns a Rich Text renderable, or None on failure.
     """
@@ -115,7 +118,20 @@ def poster_to_ascii(poster_path, width=20, height=40):
         return _poster_cache[poster_path]
 
     try:
-        url = f"https://image.tmdb.org/t/p/w185{poster_path}"
+        # Auto-size to fill poster panel: ~1/3 of terminal width, full body height
+        if width is None or height is None:
+            term_cols = os.get_terminal_size(0).columns if sys.stdout.isatty() else 140
+            term_rows = os.get_terminal_size(0).lines if sys.stdout.isatty() else 40
+            # Poster panel is ratio 1 out of 3, minus panel border (2 chars each side)
+            panel_width = (term_cols // 3) - 4
+            # Body height = terminal - header(3) - log(10) - panel borders(2)
+            panel_height = term_rows - 15
+            width = max(panel_width, 20)
+            # Half-block gives 2 pixel rows per terminal row; maintain poster aspect ~2:3
+            height = max(panel_height * 2, 30)
+
+        # Use w342 for sharper source image (w185 is too low-res for larger renders)
+        url = f"https://image.tmdb.org/t/p/w342{poster_path}"
         req = urllib.request.Request(url, headers={"User-Agent": "ripper/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             img_data = resp.read()
