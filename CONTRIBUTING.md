@@ -4,17 +4,17 @@ Hey, thanks for wanting to help out! This is a weekend project that got out of h
 
 ## The vibe
 
-Ripper is a single Python file on purpose. It's a tool for ripping your own discs, not a framework. Keep it simple, keep it fun.
+Ripper is a small, focused Python package. It's a tool for ripping your own discs, not a framework. Keep it simple, keep it fun.
 
 ## Getting started
 
 ```bash
 git clone https://github.com/gofastercloud/ripper.git
 cd ripper
-uv run ripper.py --status   # check your setup
+uv run ripper --status   # check your setup
 ```
 
-That's the whole dev environment. One file, managed by `uv` inline script metadata (PEP 723). Always use `uv run ripper.py` — never `python ripper.py` directly, since `uv` handles Python version management and dependency resolution automatically.
+That's the whole dev environment. Managed by `uv` via `pyproject.toml`. Always use `uv run ripper` — never `python -m ripper` directly, since `uv` handles Python version management and dependency resolution automatically.
 
 ## How to contribute
 
@@ -36,9 +36,23 @@ Open an issue. Include:
 
 ### Code style
 
-- It's one file. Let's keep it that way unless there's a really compelling reason not to.
-- Dependencies are declared in the PEP 723 inline metadata at the top of `ripper.py`. `uv` resolves them automatically.
-- Always use `uv run ripper.py` to run — never `python ripper.py`. `uv` is the only supported way to run ripper.
+- The package is split into focused modules under `ripper/`. See the module guide:
+
+  | Module | Responsibility |
+  |--------|---------------|
+  | `state.py` | Shared globals (`CONFIG`, `tui`, `log`, shutdown flag) |
+  | `config.py` | Config loading/saving, setup wizard, profiles |
+  | `helpers.py` | Subprocess runners, filesystem utilities |
+  | `media.py` | Source format detection, encoding auto-tune |
+  | `tui.py` | Rich TUI, logging setup |
+  | `metadata.py` | TMDb API, disc label parsing, NFO/artwork |
+  | `jellyfin.py` | Jellyfin library scan integration |
+  | `cleanup.py` | Rip manifests, cleanup, library repair |
+  | `pipeline.py` | Main orchestration: rip, compress, organize |
+  | `cli.py` | Entry point, argparse, signal handling |
+
+- Dependencies are declared in `pyproject.toml`. `uv` resolves them automatically.
+- Always use `uv run ripper` to run. `uv` is the only supported way to run ripper.
 - Match the existing style. If the codebase uses `snake_case`, you use `snake_case`.
 - Comments are good. Novels in comments are not.
 
@@ -52,10 +66,24 @@ Open an issue. Include:
 
 ### Things to be mindful of
 
-- **Don't break the single-command experience.** `uv run ripper.py` should always just work.
+- **Don't break the single-command experience.** `uv run ripper` should always just work.
 - **Config is backwards-compatible.** Old config files should still load fine.
 - **Graceful shutdown matters.** If someone hits Ctrl+C mid-rip, things should clean up properly.
 - **Not everyone has fast hardware.** VideoToolbox is the default for a reason.
+
+## Running tests
+
+```bash
+uv run pytest              # All tests
+uv run pytest tests/test_media.py -v   # Single file
+```
+
+## Linting
+
+```bash
+uv run ruff check .        # Check
+uv run ruff check --fix .  # Auto-fix
+```
 
 ## No CLA, no fuss
 

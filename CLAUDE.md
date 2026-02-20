@@ -4,48 +4,51 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Ripper is a single-file Python CLI tool (`ripper.py`, ~3500 lines) that automates ripping physical media (Blu-ray 4K UHD, 1080p, DVD) using MakeMKV, compressing with HandBrake (HDR10/Dolby Vision preservation), and organizing output with Jellyfin/Plex-compatible naming and NFO metadata from TMDb.
+Ripper is a Python CLI tool that automates ripping physical media (Blu-ray 4K UHD, 1080p, DVD) using MakeMKV, compressing with HandBrake (HDR10/Dolby Vision preservation), and organizing output with Jellyfin/Plex-compatible naming and NFO metadata from TMDb.
 
-## Running
+## Commands
 
 ```bash
-uv run ripper.py                        # Auto-detect and rip inserted disc
-uv run ripper.py --title "The Matrix"   # Specific title
-uv run ripper.py --tv --season 2        # TV disc
-uv run ripper.py --hq                   # Software x265 (slower, best quality)
-uv run ripper.py --status               # Check drive, Jellyfin, API keys
-uv run ripper.py --init                 # Reconfigure settings
-uv run ripper.py --show-config          # Print config
-```
+uv run ripper                           # Auto-detect and rip inserted disc
+uv run ripper --title "The Matrix"      # Specific title
+uv run ripper --tv --season 2           # TV disc
+uv run ripper --hq                      # Software x265 (slower, best quality)
+uv run ripper --status                  # Check drive, Jellyfin, API keys
+uv run ripper --init                    # Reconfigure settings
+uv run ripper --show-config             # Print config
+uv run ripper --repair                  # Re-fetch missing NFOs/posters
 
-Uses `uv` inline script metadata (PEP 723) — no virtualenv or `pip install` needed. The only runtime Python dependency is `rich`.
+uv run pytest                           # Run all tests
+uv run pytest tests/test_media.py -v    # Single test file
+uv run ruff check .                     # Lint
+uv run ruff check --fix .               # Auto-fix lint
+```
 
 ## Architecture
 
-Single-file monolith with these logical sections (top to bottom):
+Python package under `ripper/` with these modules:
 
-1. **TUI** (`RipperTUI` class, line ~94) — Rich-based live terminal UI with progress bars, episode queue, and scrolling log
-2. **Signal handling** (`_signal_handler`, line ~319) — Graceful Ctrl+C shutdown with cleanup
-3. **Configuration** (line ~405) — Config at `~/.config/ripper/config.json`, first-run setup wizard, env var overrides for `TMDB_API_KEY`/`JELLYFIN_API_KEY`
-4. **Logging** (`setup_logging`, line ~610) — Dual output: file log + stdout (suppressed when TUI active via `_TUILogHandler`)
-5. **Drive detection** (`check_drive`, line ~641) — macOS `diskutil`/`drutil` for optical drive and disc detection
-6. **Subprocess runners** (`run_cmd`, `run_cmd_progress`, line ~722) — Command execution with real-time progress parsing
-7. **MakeMKV integration** (line ~799) — Progress parsing, disc scanning, ripping
-8. **HandBrake integration** (line ~832) — Progress parsing, encoding with VideoToolbox (default) or software x265
-9. **Source format detection** (`detect_source_format`, `auto_tune_for_source`, line ~859) — Auto-detects DVD/BD/UHD from MakeMKV scan output and tunes encoder settings accordingly (DVD gets deinterlace + software x265)
-10. **TMDb API** (line ~1228) — Movie/TV search, metadata fetch, season episodes, caching at `_cache/`
-11. **NFO/artwork** (line ~1891) — Jellyfin-compatible NFO XML generation and poster/fanart download
-12. **Pipeline** (`run_pipeline`, `_run_pipeline_inner`, line ~2840) — Main orchestration: detect → metadata → rip → compress → organize → scan. TV mode uses parallel rip+encode (encode ep N while ripping ep N+1)
-13. **CLI** (`main`, line ~3127) — argparse with pre-parsing for `--init`/`--config`/`--show-config`
+| Module | Responsibility |
+|--------|---------------|
+| `state.py` | Shared mutable globals: `CONFIG`, `tui`, `log`, `_shutdown_requested`, `_active_processes`. Imports nothing from ripper (no circular deps). |
+| `config.py` | `CONFIG` defaults, `_VIEWING_PROFILES`, config load/save, setup wizard. Imports: state |
+| `helpers.py` | `run_cmd`, `run_cmd_progress`, `sanitize_filename`, `eject_disc`, filesystem utils. Imports: state |
+| `media.py` | `detect_source_format`, `auto_tune_for_source`, MakeMKV/HandBrake progress parsers. Imports: state |
+| `tui.py` | `RipperTUI` (Rich live UI), `_TUILogHandler`, `poster_to_ascii`, `setup_logging`. Imports: state |
+| `metadata.py` | TMDb API (search, fetch, cache), disc label parsing, NFO XML, artwork download. Imports: state, helpers |
+| `jellyfin.py` | `jellyfin_scan_library`, `jellyfin_check_status`. Imports: state |
+| `cleanup.py` | Rip manifests, `cleanup_rips`, `repair_library`. Imports: state, helpers, metadata |
+| `pipeline.py` | Main orchestration: `rip_disc`, `compress_mkv`, `organize_file`, `run_pipeline`, `watch_mode`. Imports: all modules |
+| `cli.py` | Entry point `main()`, argparse, signal handling. Imports: all modules |
 
 ## Key Patterns
 
-- **No tests or linting configured** — single-file script, no test framework
+- **Shared state**: All globals live in `state.py`. Modules access them as `state.CONFIG`, `state.tui`, etc.
+- **Shutdown**: `state.request_shutdown()` / `state.is_shutdown_requested()` checked at loop boundaries
 - **External tools**: Requires `makemkvcon`, `HandBrakeCLI`, `drutil`, `diskutil` (macOS)
 - **Threading**: TV parallel pipeline uses `threading.Thread` + `queue.Queue` for concurrent rip/encode
 - **TMDb API**: Uses `urllib.request` directly (no `requests` library), results cached to disk
-- **Config is a global `CONFIG` dict** modified in-place throughout the codebase
-- **`_shutdown_requested` global** checked at loop boundaries for graceful interrupt
+- **No circular imports**: Module dependency graph is strictly layered (state ← leaf modules ← domain modules ← pipeline ← cli)
 
 ## Output Structure
 

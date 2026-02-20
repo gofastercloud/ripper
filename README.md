@@ -5,7 +5,7 @@
 Pop a disc in, run one command, and ripper handles the rest — ripping with [MakeMKV](https://www.makemkv.com/), compressing with [HandBrake](https://handbrake.fr/) (HDR10 and Dolby Vision preserved), fetching metadata from [TMDb](https://www.themoviedb.org/), and dropping perfectly named files into your [Jellyfin](https://jellyfin.org/) or [Plex](https://www.plex.tv/) library.
 
 ```
-$ uv run ripper.py
+$ uv run ripper
 ```
 
 That's it. First run walks you through setup.
@@ -50,10 +50,10 @@ An optical drive helps too. Obviously.
 # Clone and run — no virtualenv, no pip install, nothing
 git clone https://github.com/gofastercloud/ripper.git
 cd ripper
-uv run ripper.py
+uv run ripper
 ```
 
-`uv` handles everything — the right Python version, dependencies (`rich`, `Pillow`), and execution. No virtualenv, no `pip install`, no setup steps. Just `uv run ripper.py`.
+`uv` handles everything — the right Python version, dependencies (`rich`, `Pillow`), and execution. No virtualenv, no `pip install`, no setup steps. Just `uv run ripper`.
 
 The first run will ask you a few questions (where to put files, API keys, encoder preference) and save everything to `~/.config/ripper/config.json`.
 
@@ -61,46 +61,49 @@ The first run will ask you a few questions (where to put files, API keys, encode
 
 ```bash
 # Auto-detect everything from the disc
-uv run ripper.py
+uv run ripper
 
 # Specify a title (skips TMDb search guessing)
-uv run ripper.py --title "The Matrix" --year 1999
+uv run ripper --title "The Matrix" --year 1999
 
 # TV show — season 2, starting at episode 1
-uv run ripper.py --tv --season 2
+uv run ripper --tv --season 2
 
 # TV show — disc has episodes 5-8
-uv run ripper.py --tv --season 1 --episode 5
+uv run ripper --tv --season 1 --episode 5
 
 # Best quality (software x265, slower)
-uv run ripper.py --hq
+uv run ripper --hq
 
 # Grainy/filmic source (implies --hq)
-uv run ripper.py --grain
+uv run ripper --grain
 
 # Just rip, don't encode
-uv run ripper.py --rip-only
+uv run ripper --rip-only
 
 # Just encode an existing MKV
-uv run ripper.py --compress-only /path/to/file.mkv --title "Movie Name"
+uv run ripper --compress-only /path/to/file.mkv --title "Movie Name"
 
 # Re-encode from preserved rips
-uv run ripper.py --reencode _rips/The_Matrix_1999/
+uv run ripper --reencode _rips/The_Matrix_1999/
 
 # Watch mode — auto-rips when you insert a disc
-uv run ripper.py --watch
+uv run ripper --watch
 
 # Check everything is working
-uv run ripper.py --status
+uv run ripper --status
 
 # Trigger a Jellyfin library scan
-uv run ripper.py --scan
+uv run ripper --scan
 
 # Free up space by deleting old rips
-uv run ripper.py --cleanup
+uv run ripper --cleanup
+
+# Repair library metadata (re-fetch missing NFOs, posters)
+uv run ripper --repair
 
 # Reconfigure
-uv run ripper.py --init
+uv run ripper --init
 ```
 
 ## Output structure
@@ -150,7 +153,7 @@ You can override per-source RF values in `~/.config/ripper/config.json` (`qualit
 
 ## How it works
 
-It's one Python file. Intentionally. No framework, no plugins, no microservices.
+It's a small Python package — a handful of focused modules, no framework, no plugins, no microservices.
 
 1. **Detect** — reads the disc label, figures out if it's a movie or TV show
 2. **Metadata** — searches TMDb, lets you pick if it's ambiguous, caches results
@@ -160,6 +163,13 @@ It's one Python file. Intentionally. No framework, no plugins, no microservices.
 6. **Scan** — pokes Jellyfin to pick up the new content
 
 For TV discs, steps 3-6 run in a pipeline — encoding one episode while ripping the next.
+
+## Development
+
+```bash
+uv run pytest          # Run tests
+uv run ruff check .    # Lint
+```
 
 ## License
 
