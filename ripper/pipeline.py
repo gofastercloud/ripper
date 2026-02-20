@@ -213,6 +213,7 @@ def compress_mkv(input_mkv, title_name=None, output_dir=None):
     cmd.extend([
         "--non-anamorphic",
         "--crop", "0:0:0:0",
+        "--audio-lang-list", "eng,und",
         "--all-audio",
         "--audio-fallback", "aac",
         "--all-subtitles",
