@@ -30,6 +30,7 @@ macOS with Homebrew:
 brew install uv
 brew install --cask makemkv
 brew install handbrake
+brew install ffmpeg
 ```
 
 | Tool | What it does | Link |
@@ -38,6 +39,7 @@ brew install handbrake
 | [HandBrake](https://handbrake.fr/) | Compresses video (H.265, VideoToolbox) | [handbrake.fr](https://handbrake.fr/) |
 | [Jellyfin](https://jellyfin.org/) | Media server (library scan integration) | [jellyfin.org](https://jellyfin.org/) |
 | [TMDb](https://www.themoviedb.org/) | Metadata, posters, fanart | [themoviedb.org](https://www.themoviedb.org/) |
+| [ffmpeg](https://ffmpeg.org/) | Post-encode quality analysis (optional) | [ffmpeg.org](https://ffmpeg.org/) |
 | [uv](https://docs.astral.sh/uv/) | Runs the script (manages Python + deps) | [docs.astral.sh/uv](https://docs.astral.sh/uv/) |
 
 You'll need a free [TMDb API key](https://www.themoviedb.org/settings/api). Jellyfin integration is optional but recommended.

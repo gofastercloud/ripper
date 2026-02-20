@@ -33,7 +33,7 @@ Python package under `ripper/` with these modules:
 | `state.py` | Shared mutable globals: `CONFIG`, `tui`, `log`, `_shutdown_requested`, `_active_processes`. Imports nothing from ripper (no circular deps). |
 | `config.py` | `CONFIG` defaults, `_VIEWING_PROFILES`, config load/save, setup wizard. Imports: state |
 | `helpers.py` | `run_cmd`, `run_cmd_progress`, `sanitize_filename`, `eject_disc`, filesystem utils. Imports: state |
-| `media.py` | `detect_source_format`, `auto_tune_for_source`, MakeMKV/HandBrake progress parsers. Imports: state |
+| `media.py` | `detect_source_format`, `auto_tune_for_source`, MakeMKV/HandBrake progress parsers, ffprobe quality stats. Imports: state |
 | `tui.py` | `RipperTUI` (Rich live UI), `_TUILogHandler`, `poster_to_ascii`, `setup_logging`. Imports: state |
 | `metadata.py` | TMDb API (search, fetch, cache), disc label parsing, NFO XML, artwork download. Imports: state, helpers |
 | `jellyfin.py` | `jellyfin_scan_library`, `jellyfin_check_status`. Imports: state |
