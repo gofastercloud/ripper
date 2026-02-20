@@ -110,18 +110,24 @@ def eject_disc():
     """Eject the disc. Unmount any auto-mounted data partition first, then eject."""
     state.log.info("Ejecting disc...")
 
+    # Find and unmount the optical disc's mount point via `mount`
     try:
-        result = run_cmd(["diskutil", "list"], timeout=10)
+        result = run_cmd(["mount"], timeout=10)
         if result and result.stdout:
             for line in result.stdout.splitlines():
-                if line.strip().startswith("/dev/disk") and ("BD-ROM" in line or "DVD" in line or "CD" in line or "optical" in line.lower()):
-                    dev = line.strip().split()[0]
-                    state.log.info(f"  Unmounting {dev}...")
-                    run_cmd(["diskutil", "unmountDisk", dev], timeout=10)
+                # Optical discs mount as cd9660 or udf filesystem types
+                if "cd9660" in line or "udf" in line:
+                    # Extract the device: first token before " on "
+                    dev = line.split(" on ")[0].strip()
+                    if dev.startswith("/dev/"):
+                        # Unmount the disk (not just the partition)
+                        disk_dev = re.sub(r's\d+$', '', dev)
+                        state.log.info(f"  Unmounting {disk_dev}...")
+                        run_cmd(["diskutil", "unmountDisk", "force", disk_dev], timeout=10)
     except Exception as e:
-        state.log.warning(f"  diskutil unmount attempt: {e}")
+        state.log.warning(f"  Unmount attempt: {e}")
 
-    run_cmd(["drutil", "eject"], timeout=10)
+    run_cmd(["drutil", "eject"], timeout=30)
 
 
 def ensure_dirs():
