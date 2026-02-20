@@ -27,14 +27,14 @@ def makemkv_progress(line):
         if task:
             if not (state.tui and state.tui.enabled):
                 print(f"\r  {task:<60}", end="", flush=True)
-    elif line.startswith("MSG:") and any(kw in line for kw in ["error", "Error", "LibreDrive"]):
+    elif line.startswith("MSG:"):
         parts = line.split(",", 4)
         if len(parts) >= 5:
             msg = parts[3].strip('"')
+            state.log.info(f"  MakeMKV: {msg}")
             if state.tui and state.tui.enabled:
-                state.tui.log(msg)
-            else:
-                state.log.info(f"  {msg}")
+                if any(kw in line for kw in ["error", "Error", "fail", "Fail", "LibreDrive"]):
+                    state.tui.log(msg)
 
 
 def handbrake_progress(line):
