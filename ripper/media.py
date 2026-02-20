@@ -31,6 +31,8 @@ def makemkv_progress(line):
         parts = line.split(",", 4)
         if len(parts) >= 5:
             msg = parts[3].strip('"')
+            if "Profile parsing error" in msg:
+                return
             state.log.info(f"  MakeMKV: {msg}")
             if state.tui and state.tui.enabled:
                 if any(kw in line for kw in ["error", "Error", "fail", "Fail", "LibreDrive"]):
