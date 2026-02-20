@@ -111,6 +111,7 @@ class RipperTUI:
         self.current_encode_ep = None
 
         self.poster_art = None
+        self._poster_panel = None
 
         self.disc_start_time = None
         self._disc_eta_str = ""
@@ -161,6 +162,10 @@ class RipperTUI:
 
     def set_poster(self, poster_renderable):
         self.poster_art = poster_renderable
+        self._poster_panel = Panel(
+            poster_renderable, title="[dim]Poster[/]",
+            box=box.ROUNDED, style="dim",
+        )
         self._refresh()
 
     def start_disc_timer(self):
@@ -268,11 +273,8 @@ class RipperTUI:
         header_text = f" {type_badge}  [bold white]{self.title}{year_str}[/]  {source_badge}  {enc_badge}"
         layout["header"].update(Panel(header_text, box=box.HEAVY, style="blue"))
 
-        if self.poster_art:
-            poster_panel = Panel(
-                self.poster_art, title="[dim]Poster[/]",
-                box=box.ROUNDED, style="dim",
-            )
+        if self._poster_panel:
+            poster_panel = self._poster_panel
             if self.episodes:
                 layout["body"].split_row(
                     Layout(name="poster", ratio=1),

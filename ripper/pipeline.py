@@ -143,8 +143,14 @@ def rip_disc(title_name=None):
         return None, None
 
     mkv_file = max(mkv_files, key=lambda f: f.stat().st_size)
-    size_gb = mkv_file.stat().st_size / (1024 ** 3)
+    size_bytes = mkv_file.stat().st_size
+    size_gb = size_bytes / (1024 ** 3)
     state.log.info(f"Rip complete: {mkv_file.name} ({size_gb:.1f} GB)")
+
+    if size_bytes < 1_000_000:  # < 1 MB is effectively empty
+        state.log.error(f"Ripped file is too small ({size_bytes} bytes) — MakeMKV likely failed.")
+        state.log.error("Try ejecting and re-inserting the disc, or check MakeMKV logs.")
+        return None, None
 
     return mkv_file, source_info
 
