@@ -24,7 +24,7 @@ _VIEWING_PROFILES = {
 # Keys that are safe/useful to persist in config file
 _CONFIGURABLE_KEYS = {
     "output_base", "rip_dir", "encode_dir", "tv_encode_dir", "log_dir",
-    "makemkv_bin", "handbrake_bin",
+    "makemkv_bin", "handbrake_bin", "ffprobe_bin",
     "min_title_length", "min_episode_length",
     "encoder", "quality_rf", "encoder_preset", "encoder_tune",
     "encoder_profile", "encoder_level", "hq_mode", "output_format",
@@ -77,6 +77,11 @@ def _detect_defaults():
             CONFIG["handbrake_bin"] = found
         else:
             CONFIG["handbrake_bin"] = "HandBrakeCLI"
+
+    if not CONFIG.get("ffprobe_bin"):
+        found = _find_binary("ffprobe")
+        if found:
+            CONFIG["ffprobe_bin"] = found
 
     if not CONFIG.get("output_base"):
         CONFIG["output_base"] = str(Path.home() / "Media")

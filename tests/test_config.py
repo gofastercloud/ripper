@@ -85,3 +85,16 @@ class TestLoadConfig:
         load_config(str(config_file))
         # Defaults still intact
         assert state.CONFIG["encoder"] == "vt_h265_10bit"
+
+
+class TestDetectDefaults:
+    def test_detect_defaults_finds_ffprobe(self):
+        """_detect_defaults sets ffprobe_bin when ffprobe is available."""
+        from ripper import state
+        state.CONFIG["ffprobe_bin"] = ""
+        from unittest.mock import patch
+
+        from ripper.config import _detect_defaults
+        with patch("ripper.config._find_binary", return_value="/usr/local/bin/ffprobe"):
+            _detect_defaults()
+        assert state.CONFIG["ffprobe_bin"] == "/usr/local/bin/ffprobe"
