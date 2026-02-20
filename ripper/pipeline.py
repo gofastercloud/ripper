@@ -70,7 +70,7 @@ def rip_disc(title_name=None):
     state.log.info("=" * 60)
 
     state.log.info("Scanning disc for titles...")
-    scan = run_cmd([makemkv, "-r", "info", "disc:0"], timeout=120)
+    scan = run_cmd([makemkv, "-r", "--minlength=0", "info", "disc:0"], timeout=120)
     if scan is None or scan.returncode != 0:
         state.log.error("Failed to scan disc. Is a disc inserted?")
         return None, None
@@ -359,7 +359,7 @@ def rip_tv_disc(title_name, season_num, start_episode=1, episodes_info=None):
     state.log.info("=" * 60)
 
     state.log.info("Scanning disc for titles...")
-    scan = run_cmd([makemkv, "-r", "info", "disc:0"], timeout=120)
+    scan = run_cmd([makemkv, "-r", "--minlength=0", "info", "disc:0"], timeout=120)
     if scan is None or scan.returncode != 0:
         state.log.error("Failed to scan disc.")
         return []
@@ -484,7 +484,7 @@ def _rip_tv_disc_parallel(title_name, season_num, start_episode, episodes_info,
     state.log.info("=" * 60)
 
     state.log.info("Scanning disc for titles...")
-    scan = run_cmd([makemkv, "-r", "info", "disc:0"], timeout=120)
+    scan = run_cmd([makemkv, "-r", "--minlength=0", "info", "disc:0"], timeout=120)
     if scan is None or scan.returncode != 0:
         state.log.error("Failed to scan disc.")
         return []
