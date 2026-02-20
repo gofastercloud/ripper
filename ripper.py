@@ -73,6 +73,7 @@ import urllib.error
 import threading
 import queue
 import hashlib
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
 
@@ -1193,8 +1194,22 @@ def disc_is_inserted():
 
 
 def eject_disc():
-    """Eject the disc after processing."""
+    """Eject the disc. Unmount any auto-mounted data partition first, then eject."""
     log.info("Ejecting disc...")
+
+    # Try to unmount any auto-mounted data partition (best-effort)
+    try:
+        result = run_cmd(["diskutil", "list"], timeout=10)
+        if result and result.stdout:
+            for line in result.stdout.splitlines():
+                # Look for optical disc devices (e.g. /dev/disk8)
+                if line.strip().startswith("/dev/disk") and ("BD-ROM" in line or "DVD" in line or "CD" in line or "optical" in line.lower()):
+                    dev = line.strip().split()[0]
+                    log.info(f"  Unmounting {dev}...")
+                    run_cmd(["diskutil", "unmountDisk", dev], timeout=10)
+    except Exception as e:
+        log.warning(f"  diskutil unmount attempt: {e}")
+
     run_cmd(["drutil", "eject"], timeout=10)
 
 
@@ -1799,6 +1814,7 @@ def tmdb_get_season_episodes(tmdb_id, season_num):
             "overview": ep.get("overview", ""),
             "air_date": ep.get("air_date", ""),
             "runtime": ep.get("runtime"),
+            "still_path": ep.get("still_path"),
         }
         for ep in episodes
     ]
@@ -3038,6 +3054,219 @@ def cleanup_rips(rip_dir=None):
 
 
 # ============================================================================
+# LIBRARY REPAIR
+# ============================================================================
+
+def _parse_tmdb_id_from_nfo(nfo_path):
+    """Extract the TMDb ID from a .nfo file's <uniqueid type="tmdb"> element."""
+    try:
+        tree = ET.parse(nfo_path)
+        root = tree.getroot()
+        for uid in root.findall("uniqueid"):
+            if uid.get("type") == "tmdb" and uid.text:
+                return int(uid.text)
+    except (ET.ParseError, ValueError, OSError):
+        pass
+    return None
+
+
+def _parse_folder_title_year(folder_name):
+    """Extract title and year from a folder like 'The Matrix (1999)'. Returns (title, year_str|None)."""
+    m = re.match(r"^(.+?)\s*\((\d{4})\)\s*$", folder_name)
+    if m:
+        return m.group(1).strip(), m.group(2)
+    return folder_name, None
+
+
+def repair_library():
+    """
+    Scan the media library for movies/shows missing cover art or NFO metadata,
+    then re-fetch from TMDb and fill the gaps.
+    """
+    movies_dir = Path(CONFIG["encode_dir"])
+    shows_dir = Path(CONFIG["tv_encode_dir"])
+
+    stats = {"scanned": 0, "repaired": 0, "failed": 0}
+
+    console.print("\n[bold]Library Repair[/bold] — scanning for missing artwork & metadata\n")
+
+    # ---- Movies ----
+    if movies_dir.exists():
+        movie_folders = sorted([d for d in movies_dir.iterdir() if d.is_dir()])
+        if movie_folders:
+            console.print(f"[bold]Movies[/bold] ({movies_dir})")
+        for folder in movie_folders:
+            stats["scanned"] += 1
+            has_nfo = any(folder.glob("*.nfo"))
+            has_poster = (folder / "poster.jpg").exists()
+            has_fanart = (folder / "fanart.jpg").exists()
+
+            if has_nfo and has_poster and has_fanart:
+                console.print(f"  [green]OK[/green]  {folder.name}")
+                continue
+
+            missing = []
+            if not has_nfo:
+                missing.append("NFO")
+            if not has_poster:
+                missing.append("poster")
+            if not has_fanart:
+                missing.append("fanart")
+
+            console.print(f"  [yellow]FIX[/yellow] {folder.name}  (missing: {', '.join(missing)})")
+
+            # Get metadata
+            meta = None
+            # Try to get tmdb_id from existing NFO first
+            if has_nfo:
+                nfo_files = list(folder.glob("*.nfo"))
+                for nf in nfo_files:
+                    tmdb_id = _parse_tmdb_id_from_nfo(nf)
+                    if tmdb_id:
+                        meta = {"tmdb_id": tmdb_id}
+                        meta = tmdb_fetch_details(meta)
+                        break
+
+            if not meta or not meta.get("tmdb_id"):
+                # Fall back to searching by folder name
+                title, year = _parse_folder_title_year(folder.name)
+                query = f"{title} {year}" if year else title
+                meta = tmdb_search(query)
+
+            if not meta:
+                console.print(f"        [red]FAIL[/red] Could not find on TMDb")
+                stats["failed"] += 1
+                continue
+
+            repaired = False
+            if not has_poster or not has_fanart:
+                download_artwork(meta, folder)
+                repaired = True
+            if not has_nfo:
+                folder_label = sanitize_filename(
+                    f"{meta.get('title', folder.name)} ({meta.get('year', '')})"
+                    if meta.get("year") else meta.get("title", folder.name)
+                )
+                write_nfo(meta, folder, folder_label)
+                repaired = True
+
+            if repaired:
+                stats["repaired"] += 1
+    else:
+        console.print(f"[dim]Movies directory not found: {movies_dir}[/dim]")
+
+    # ---- TV Shows ----
+    if shows_dir.exists():
+        show_folders = sorted([d for d in shows_dir.iterdir() if d.is_dir()])
+        if show_folders:
+            console.print(f"\n[bold]TV Shows[/bold] ({shows_dir})")
+        for folder in show_folders:
+            stats["scanned"] += 1
+            has_nfo = (folder / "tvshow.nfo").exists()
+            has_poster = (folder / "poster.jpg").exists()
+            has_fanart = (folder / "fanart.jpg").exists()
+
+            show_missing = []
+            if not has_nfo:
+                show_missing.append("NFO")
+            if not has_poster:
+                show_missing.append("poster")
+            if not has_fanart:
+                show_missing.append("fanart")
+
+            # Check season folders for episodes missing thumb images
+            ep_missing_thumbs = []
+            season_dirs = sorted([d for d in folder.iterdir()
+                                  if d.is_dir() and d.name.startswith("Season")])
+            for season_dir in season_dirs:
+                for mkv in sorted(season_dir.glob("*.mkv")):
+                    thumb = mkv.with_name(mkv.stem + "-thumb.jpg")
+                    if not thumb.exists():
+                        ep_missing_thumbs.append(mkv)
+
+            if not show_missing and not ep_missing_thumbs:
+                console.print(f"  [green]OK[/green]  {folder.name}")
+                continue
+
+            if show_missing:
+                console.print(f"  [yellow]FIX[/yellow] {folder.name}  (missing: {', '.join(show_missing)})")
+            if ep_missing_thumbs:
+                console.print(f"  [yellow]FIX[/yellow] {folder.name}  ({len(ep_missing_thumbs)} episode thumbnail(s) missing)")
+
+            # Get show metadata (needed for show-level repairs and episode thumbs)
+            meta = None
+            if has_nfo:
+                tmdb_id = _parse_tmdb_id_from_nfo(folder / "tvshow.nfo")
+                if tmdb_id:
+                    meta = {"tmdb_id": tmdb_id, "media_type": "tv"}
+                    meta = tmdb_fetch_tv_details(meta)
+
+            if not meta or not meta.get("tmdb_id"):
+                title, year = _parse_folder_title_year(folder.name)
+                meta = tmdb_search_tv(title)
+
+            if not meta:
+                console.print(f"        [red]FAIL[/red] Could not find on TMDb")
+                stats["failed"] += 1
+                continue
+
+            repaired = False
+
+            # Fix show-level files
+            if not has_poster or not has_fanart:
+                download_artwork(meta, folder)
+                repaired = True
+            if not has_nfo:
+                title, _ = _parse_folder_title_year(folder.name)
+                write_tv_nfo(meta, folder, meta.get("title", title), 1)
+                repaired = True
+
+            # Fix episode thumbnails
+            if ep_missing_thumbs and meta.get("tmdb_id"):
+                # Group missing thumbs by season number
+                seasons_needed = set()
+                for mkv in ep_missing_thumbs:
+                    m = re.search(r"S(\d+)E\d+", mkv.stem)
+                    if m:
+                        seasons_needed.add(int(m.group(1)))
+
+                # Fetch episode data per season and build still_path lookup
+                ep_stills = {}  # (season, episode) -> still_path
+                for sn in sorted(seasons_needed):
+                    episodes_info = tmdb_get_season_episodes(meta["tmdb_id"], sn)
+                    for ei in episodes_info:
+                        sp = ei.get("still_path")
+                        if sp:
+                            ep_stills[(sn, ei["episode_number"])] = sp
+
+                for mkv in ep_missing_thumbs:
+                    m = re.search(r"S(\d+)E(\d+)", mkv.stem)
+                    if not m:
+                        continue
+                    sn, en = int(m.group(1)), int(m.group(2))
+                    still = ep_stills.get((sn, en))
+                    if still:
+                        thumb_path = mkv.with_name(mkv.stem + "-thumb.jpg")
+                        url = f"https://image.tmdb.org/t/p/original{still}"
+                        try:
+                            urllib.request.urlretrieve(url, str(thumb_path))
+                            console.print(f"        [green]DL[/green]  {thumb_path.name}")
+                            repaired = True
+                        except (urllib.error.URLError, OSError) as e:
+                            console.print(f"        [red]FAIL[/red] {mkv.stem} thumb: {e}")
+                    else:
+                        console.print(f"        [dim]SKIP[/dim] {mkv.stem} (no still on TMDb)")
+
+            if repaired:
+                stats["repaired"] += 1
+    else:
+        console.print(f"[dim]Shows directory not found: {shows_dir}[/dim]")
+
+    console.print(f"\n[bold]Summary:[/bold] {stats['scanned']} scanned, "
+                  f"{stats['repaired']} repaired, {stats['failed']} failed\n")
+
+
+# ============================================================================
 # FULL PIPELINE
 # ============================================================================
 
@@ -3122,6 +3351,9 @@ def _run_pipeline_inner(title_name, year, media_type, meta, disc_info):
         if tui and tui.enabled:
             tui.update_rip(100.0)
             tui.log(f"Rip complete: {rip_mkv.name}")
+
+        # Disc no longer needed — eject early so user can swap
+        eject_disc()
 
         # Write manifest for the rip (enables --reencode later)
         write_rip_manifest(rip_mkv.parent, [(rip_mkv, None)])
@@ -3234,6 +3466,9 @@ def _run_pipeline_inner(title_name, year, media_type, meta, disc_info):
             encode_queue, rip_dirs_to_clean,
         )
 
+        # Disc no longer needed — eject early so user can swap
+        eject_disc()
+
         if not ripped_episodes and not encode_results:
             log.error("Pipeline failed at rip stage — no episodes ripped.")
             encode_queue.put(None)  # Stop worker
@@ -3274,9 +3509,6 @@ def _run_pipeline_inner(title_name, year, media_type, meta, disc_info):
 
     # Notify Jellyfin
     jellyfin_scan_library()
-
-    # Eject disc
-    eject_disc()
 
     log.info("")
     log.info("=" * 60)
@@ -3384,6 +3616,7 @@ def main():
   uv run ripper.py --status               Check drive, Jellyfin, API keys
   uv run ripper.py --reencode _rips/dir   Re-encode from preserved rips
   uv run ripper.py --cleanup              Free space by deleting old rips
+  uv run ripper.py --repair               Fix missing artwork/NFO in library
   uv run ripper.py --init                 Reconfigure settings
 
 config:
@@ -3481,6 +3714,10 @@ config:
         "--verify-rips", metavar="RIP_DIR",
         help="Verify rip integrity using MD5 hashes from manifest",
     )
+    parser.add_argument(
+        "--repair", action="store_true",
+        help="Scan library for missing artwork/NFO and re-fetch from TMDb",
+    )
 
     args = parser.parse_args()
 
@@ -3514,6 +3751,10 @@ config:
 
     if args.cleanup:
         cleanup_rips()
+        return
+
+    if args.repair:
+        repair_library()
         return
 
     if args.verify_rips:
