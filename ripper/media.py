@@ -1,6 +1,8 @@
 """MakeMKV/HandBrake progress parsing and source format detection."""
 
+import json
 import re
+import subprocess
 
 from ripper import state
 
@@ -171,3 +173,85 @@ def auto_tune_for_source(source_info):
             source_format=f"{disc_type.upper()} {res_str}",
             encoder_mode=enc_label,
         )
+
+
+def probe_media_file(file_path):
+    """Run ffprobe on a file and return parsed media info, or None if unavailable."""
+    ffprobe = CONFIG.get("ffprobe_bin", "")
+    if not ffprobe:
+        return None
+
+    try:
+        result = subprocess.run(
+            [
+                ffprobe, "-v", "quiet",
+                "-print_format", "json",
+                "-show_format", "-show_streams",
+                str(file_path),
+            ],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            state.log.warning(f"ffprobe failed (exit {result.returncode})")
+            return None
+
+        data = json.loads(result.stdout)
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
+        state.log.warning(f"ffprobe error: {e}")
+        return None
+
+    fmt = data.get("format", {})
+    streams = data.get("streams", [])
+
+    # Video
+    video = next((s for s in streams if s.get("codec_type") == "video"), None)
+    if not video:
+        return None
+
+    # Frame rate
+    r_frame_rate = video.get("r_frame_rate", "0/1")
+    try:
+        num, den = r_frame_rate.split("/")
+        fps = round(int(num) / int(den), 3)
+    except (ValueError, ZeroDivisionError):
+        fps = 0.0
+    frame_rate = str(fps)
+
+    # HDR detection
+    color_transfer = video.get("color_transfer", "")
+    side_data = video.get("side_data_list", [])
+    has_dovi = any("DOVI" in (sd.get("side_data_type", "").upper()) for sd in side_data)
+
+    if has_dovi:
+        hdr = "Dolby Vision"
+    elif color_transfer == "smpte2084":
+        hdr = "HDR10"
+    elif color_transfer == "arib-std-b67":
+        hdr = "HLG"
+    else:
+        hdr = None
+
+    # Audio tracks
+    audio_tracks = []
+    for s in streams:
+        if s.get("codec_type") != "audio":
+            continue
+        audio_tracks.append({
+            "codec": s.get("codec_name", "unknown"),
+            "channels": s.get("channels", 0),
+            "layout": s.get("channel_layout", ""),
+            "language": s.get("tags", {}).get("language", ""),
+        })
+
+    return {
+        "video_codec": video.get("codec_name", "unknown"),
+        "video_profile": video.get("profile", ""),
+        "resolution": (video.get("width", 0), video.get("height", 0)),
+        "frame_rate": frame_rate,
+        "hdr": hdr,
+        "color_primaries": video.get("color_primaries", ""),
+        "audio_tracks": audio_tracks,
+        "file_size_bytes": int(fmt.get("size", 0)),
+        "duration_seconds": float(fmt.get("duration", 0)),
+        "bitrate_kbps": int(fmt.get("bit_rate", 0)) // 1000,
+    }
