@@ -25,7 +25,9 @@ from ripper.media import (
     auto_tune_for_source,
     detect_source_format,
     handbrake_progress,
+    log_encode_stats,
     makemkv_progress,
+    probe_media_file,
 )
 from ripper.metadata import (
     download_artwork,
@@ -260,6 +262,11 @@ def compress_mkv(input_mkv, title_name=None, output_dir=None):
     state.log.info(f"  Source:  {in_size:.1f} GB")
     state.log.info(f"  Output:  {out_size:.1f} GB")
     state.log.info(f"  Savings: {ratio:.0f}%")
+
+    probe = probe_media_file(output_file)
+    if probe:
+        raw_bytes = input_mkv.stat().st_size if input_mkv.exists() else None
+        log_encode_stats(probe, raw_size_bytes=raw_bytes)
 
     return output_file
 

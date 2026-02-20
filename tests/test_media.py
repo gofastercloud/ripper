@@ -163,3 +163,47 @@ class TestProbeMediaFile:
             result = probe_media_file("/fake/movie.mkv")
 
         assert result["hdr"] == "Dolby Vision"
+
+
+class TestLogEncodeStats:
+    def test_log_encode_stats_formats_output(self):
+        """log_encode_stats logs video, HDR, audio, and size info."""
+        _ensure_log()
+        probe_result = {
+            "video_codec": "hevc",
+            "video_profile": "Main 10",
+            "resolution": (3840, 2160),
+            "frame_rate": "23.976",
+            "hdr": "HDR10",
+            "color_primaries": "bt2020",
+            "audio_tracks": [
+                {"codec": "truehd", "channels": 8, "layout": "7.1", "language": "eng"},
+                {"codec": "aac", "channels": 2, "layout": "stereo", "language": "eng"},
+            ],
+            "file_size_bytes": 19771093504,
+            "duration_seconds": 8160.5,
+            "bitrate_kbps": 19384,
+        }
+        from ripper.media import log_encode_stats
+        # Should not raise; output goes to logger
+        log_encode_stats(probe_result, raw_size_bytes=54 * 1024**3)
+
+    def test_log_encode_stats_handles_no_raw_size(self):
+        """log_encode_stats works without raw size comparison."""
+        _ensure_log()
+        probe_result = {
+            "video_codec": "hevc",
+            "video_profile": "Main 10",
+            "resolution": (1920, 1080),
+            "frame_rate": "24.0",
+            "hdr": None,
+            "color_primaries": "bt709",
+            "audio_tracks": [
+                {"codec": "aac", "channels": 2, "layout": "stereo", "language": "eng"},
+            ],
+            "file_size_bytes": 2000000000,
+            "duration_seconds": 5400.0,
+            "bitrate_kbps": 3000,
+        }
+        from ripper.media import log_encode_stats
+        log_encode_stats(probe_result)

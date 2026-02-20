@@ -255,3 +255,43 @@ def probe_media_file(file_path):
         "duration_seconds": float(fmt.get("duration", 0)),
         "bitrate_kbps": int(fmt.get("bit_rate", 0)) // 1000,
     }
+
+
+def log_encode_stats(probe_result, raw_size_bytes=None):
+    """Log a human-readable summary of the encoded file's media properties."""
+    if not probe_result:
+        return
+
+    res = probe_result["resolution"]
+    video_line = f"{res[0]}x{res[1]} @ {probe_result['frame_rate']} fps, {probe_result['video_codec'].upper()}"
+    if probe_result["video_profile"]:
+        video_line += f" {probe_result['video_profile']}"
+
+    state.log.info("  Encode stats:")
+    state.log.info(f"    Video:  {video_line}")
+
+    if probe_result["hdr"]:
+        hdr_line = probe_result["hdr"]
+        if probe_result["color_primaries"]:
+            hdr_line += f" ({probe_result['color_primaries']})"
+        state.log.info(f"    HDR:    {hdr_line}")
+
+    if probe_result["audio_tracks"]:
+        parts = []
+        for t in probe_result["audio_tracks"]:
+            desc = t["codec"].upper()
+            if t["layout"]:
+                desc += f" {t['layout']}"
+            elif t["channels"]:
+                desc += f" {t['channels']}ch"
+            parts.append(desc)
+        state.log.info(f"    Audio:  {' + '.join(parts)}")
+
+    out_bytes = probe_result["file_size_bytes"]
+    out_gb = out_bytes / (1024 ** 3)
+    if raw_size_bytes and raw_size_bytes > 0:
+        raw_gb = raw_size_bytes / (1024 ** 3)
+        reduction = (1 - out_bytes / raw_size_bytes) * 100
+        state.log.info(f"    Size:   {out_gb:.1f} GB (was {raw_gb:.1f} GB — {reduction:.0f}% smaller)")
+    else:
+        state.log.info(f"    Size:   {out_gb:.1f} GB")
