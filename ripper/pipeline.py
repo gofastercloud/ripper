@@ -58,6 +58,13 @@ def rip_disc(title_name=None):
 
     rip_out.mkdir(parents=True, exist_ok=True)
 
+    # Clean stale MKV files from previous failed rips
+    for old_mkv in rip_out.glob("*.mkv"):
+        old_size = old_mkv.stat().st_size
+        if old_size < 100_000_000:  # < 100 MB is a failed rip remnant
+            state.log.info(f"  Removing stale rip: {old_mkv.name} ({old_size / 1e6:.1f} MB)")
+            old_mkv.unlink()
+
     state.log.info("=" * 60)
     state.log.info("STEP 1: RIPPING DISC WITH MAKEMKV")
     state.log.info("=" * 60)
@@ -147,11 +154,11 @@ def rip_disc(title_name=None):
     size_gb = size_bytes / (1024 ** 3)
     state.log.info(f"Rip complete: {mkv_file.name} ({size_gb:.1f} GB)")
 
-    if size_bytes < 1_000_000:  # < 1 MB is effectively empty
-        state.log.error(f"Ripped file is too small ({size_bytes} bytes) — MakeMKV likely failed.")
+    if size_bytes < 100_000_000:  # < 100 MB is effectively a failed rip
+        state.log.error(f"Ripped file is too small ({size_bytes / 1e6:.1f} MB) — MakeMKV likely failed.")
         state.log.error("Try ejecting and re-inserting the disc, or check MakeMKV logs.")
         if stderr:
-            state.log.error(f"MakeMKV output: {stderr[-1000:]}")
+            state.log.error(f"MakeMKV stderr: {stderr[-1000:]}")
         return None, None
 
     return mkv_file, source_info
