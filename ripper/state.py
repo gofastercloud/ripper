@@ -67,6 +67,9 @@ log = None
 # Stdout handler ref so TUI can suppress/restore it
 _stdout_handler = None
 
+# Pipeline summary lines to print after TUI stops
+_pipeline_summary = []
+
 # Graceful shutdown
 _shutdown_requested = False
 _active_processes = []

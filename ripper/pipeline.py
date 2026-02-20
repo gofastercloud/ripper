@@ -671,13 +671,23 @@ def run_pipeline(title_name=None, year=None, media_type=None,
         state.tui.start_disc_timer()
 
     try:
-        return _run_pipeline_inner(
+        result = _run_pipeline_inner(
             title_name, year, media_type, meta, disc_info,
         )
     finally:
         if state.tui:
             state.tui.stop()
             state.tui = None
+
+    # Re-print summary to stdout now that TUI is gone
+    if result and state._pipeline_summary:
+        print()
+        for line in state._pipeline_summary:
+            print(line)
+        print()
+        state._pipeline_summary = []
+
+    return result
 
 
 def _run_pipeline_inner(title_name, year, media_type, meta, disc_info):
@@ -833,18 +843,25 @@ def _run_pipeline_inner(title_name, year, media_type, meta, disc_info):
 
     jellyfin_scan_library()
 
-    state.log.info("")
-    state.log.info("=" * 60)
-    state.log.info("PIPELINE COMPLETE!")
-    state.log.info(f"  Result: {final}")
+    summary = []
+    summary.append("=" * 60)
+    summary.append("PIPELINE COMPLETE!")
+    summary.append(f"  Result: {final}")
     if meta:
         genres = ', '.join(meta.get('genres', []))
         creators = ', '.join(meta.get('directors', []))
-        state.log.info(f"  Genres: {genres}")
+        summary.append(f"  Genres: {genres}")
         if creators:
-            state.log.info(f"  {'Created by' if media_type == 'tv' else 'Director(s)'}: {creators}")
-    state.log.info(f"  Time: {datetime.now():%Y-%m-%d %H:%M:%S}")
-    state.log.info("=" * 60)
+            label = 'Created by' if media_type == 'tv' else 'Director(s)'
+            summary.append(f"  {label}: {creators}")
+    summary.append(f"  Time: {datetime.now():%Y-%m-%d %H:%M:%S}")
+    summary.append("=" * 60)
+
+    state.log.info("")
+    for line in summary:
+        state.log.info(line)
+
+    state._pipeline_summary = summary
 
     try:
         subprocess.run([
