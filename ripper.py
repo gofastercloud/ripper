@@ -17,8 +17,8 @@ organizing output with Jellyfin/Plex-compatible naming and metadata.
 Features:
   - Auto-detects disc type (movie vs TV) and source format (DVD/BD/UHD)
   - TMDb metadata lookup with interactive fallback for unrecognised discs
-  - VideoToolbox hardware encoding by default, software x265 with --hq
-  - DVD auto-detection: switches to software x265 + deinterlace
+  - Auto-optimized encoding per source (DVD/BD/UHD) with viewing profiles
+  - VideoToolbox hardware encoding, software x265 available with --hq
   - Parallel rip+encode for TV discs (encode ep1 while ripping ep2)
   - Per-episode Jellyfin library scan (episodes appear as they complete)
   - Rip integrity verification with MD5 manifests
@@ -467,6 +467,13 @@ CONFIG = {
     "deinterlace": False,           # Auto-enabled for DVDs
     "output_format": "mkv",
 
+    # Auto-optimized encoding — set by viewing profile
+    "viewing_profile": "mixed",
+    "quality_rf_dvd": 60,
+    "quality_rf_bd": 52,
+    "quality_rf_uhd": 50,
+    "audio_mode": "copy,aac",       # "copy,aac" or "aac"
+
     # Polling interval for --watch mode (seconds)
     "poll_interval": 10,
 
@@ -481,6 +488,15 @@ CONFIG = {
 # Default config file location
 CONFIG_PATH = Path.home() / ".config" / "ripper" / "config.json"
 
+# Viewing profiles: per-source RF and audio settings
+_VIEWING_PROFILES = {
+    "oled":   {"quality_rf_uhd": 48, "quality_rf_bd": 50, "quality_rf_dvd": 58, "audio_mode": "copy,aac"},
+    "led":    {"quality_rf_uhd": 50, "quality_rf_bd": 52, "quality_rf_dvd": 60, "audio_mode": "copy,aac"},
+    "tablet": {"quality_rf_uhd": 55, "quality_rf_bd": 55, "quality_rf_dvd": 62, "audio_mode": "aac"},
+    "phone":  {"quality_rf_uhd": 58, "quality_rf_bd": 58, "quality_rf_dvd": 65, "audio_mode": "aac"},
+    "mixed":  {"quality_rf_uhd": 50, "quality_rf_bd": 52, "quality_rf_dvd": 60, "audio_mode": "copy,aac"},
+}
+
 # Keys that are safe/useful to persist in config file
 _CONFIGURABLE_KEYS = {
     "output_base", "rip_dir", "encode_dir", "tv_encode_dir", "log_dir",
@@ -488,6 +504,8 @@ _CONFIGURABLE_KEYS = {
     "min_title_length", "min_episode_length",
     "encoder", "quality_rf", "encoder_preset", "encoder_tune",
     "encoder_profile", "encoder_level", "hq_mode", "output_format",
+    "viewing_profile", "quality_rf_dvd", "quality_rf_bd", "quality_rf_uhd",
+    "audio_mode",
     "poll_interval",
     "tmdb_api_key", "metadata_cache",
     "jellyfin_url", "jellyfin_api_key",
@@ -635,21 +653,26 @@ def run_setup(first_run=False):
     hb_bin = input(f"  HandBrakeCLI path [{default_hb}]{found_msg}: ").strip() or default_hb
     CONFIG["handbrake_bin"] = hb_bin
 
-    # 4. Default encoder
-    print("\n  Default encoder:")
-    print("    1. VideoToolbox — fast hardware encoding, good quality (recommended)")
-    print("    2. Software x265 — slower, best quality")
-    enc = input("  Choice [1]: ").strip()
-    if enc == "2":
-        CONFIG["encoder"] = "x265_10bit"
-        CONFIG["quality_rf"] = 18
-        CONFIG["encoder_preset"] = "slow"
-        CONFIG["hq_mode"] = True
-    else:
-        CONFIG["encoder"] = "vt_h265_10bit"
-        CONFIG["quality_rf"] = 55
-        CONFIG["encoder_preset"] = "quality"
-        CONFIG["hq_mode"] = False
+    # 4. Viewing profile (replaces encoder choice)
+    print("\n  Primary viewing device:")
+    print("    1. OLED TV — best quality, largest files (home theater)")
+    print("    2. LED TV — high quality, balanced size")
+    print("    3. Tablet — good quality, smaller files")
+    print("    4. Phone — decent quality, smallest files")
+    print("    5. Mixed — balanced for multiple devices (recommended)")
+    profile_choice = input("  Choice [5]: ").strip()
+    profile_map = {"1": "oled", "2": "led", "3": "tablet", "4": "phone", "5": "mixed"}
+    profile_name = profile_map.get(profile_choice, "mixed")
+    CONFIG["viewing_profile"] = profile_name
+    profile = _VIEWING_PROFILES[profile_name]
+    CONFIG["quality_rf_uhd"] = profile["quality_rf_uhd"]
+    CONFIG["quality_rf_bd"] = profile["quality_rf_bd"]
+    CONFIG["quality_rf_dvd"] = profile["quality_rf_dvd"]
+    CONFIG["audio_mode"] = profile["audio_mode"]
+    CONFIG["encoder"] = "vt_h265_10bit"
+    CONFIG["quality_rf"] = profile["quality_rf_bd"]  # Default RF for display
+    CONFIG["encoder_preset"] = "quality"
+    CONFIG["hq_mode"] = False
 
     # 5. TMDb API key
     print("\n  TMDb API key (free at https://www.themoviedb.org/settings/api)")
@@ -1014,11 +1037,10 @@ def detect_source_format(scan_output):
 def auto_tune_for_source(source_info):
     """
     Automatically adjust encoder settings based on source format.
-    - DVD: use software x265 (--hq mode) + deinterlace. Small files, fast encode.
-    - Blu-ray (1080p): use VideoToolbox. Good balance of speed and quality.
-    - UHD (4K): use VideoToolbox. Fast encoding, HDR passthrough.
+    Uses per-source RF values from the viewing profile (quality_rf_dvd/bd/uhd).
+    All sources use VideoToolbox by default. DVDs get deinterlace.
 
-    Only adjusts if the user hasn't explicitly set --hq (respects manual overrides).
+    Respects manual overrides: --hq forces software x265, --quality skips RF assignment.
     """
     disc_type = source_info.get("disc_type", "unknown")
     res = source_info.get("resolution")
@@ -1028,37 +1050,40 @@ def auto_tune_for_source(source_info):
 
     # Don't override user's explicit --hq choice
     if CONFIG.get("_user_set_hq"):
-        log.info(f"  Encoder: user override (--hq)")
+        log.info("  Encoder: user override (--hq)")
+        # Still enable deinterlace for DVDs even in --hq mode
+        if disc_type == "dvd":
+            CONFIG["deinterlace"] = True
+            log.info("  Deinterlace: auto-enabled for DVD source")
         return
 
+    # Pick per-source RF (unless user passed --quality explicitly)
+    if not CONFIG.get("_user_set_quality"):
+        if disc_type == "dvd":
+            CONFIG["quality_rf"] = CONFIG["quality_rf_dvd"]
+        elif disc_type == "bluray":
+            CONFIG["quality_rf"] = CONFIG["quality_rf_bd"]
+        elif disc_type == "uhd":
+            CONFIG["quality_rf"] = CONFIG["quality_rf_uhd"]
+    else:
+        log.info("  RF: user override (--quality)")
+
+    # All sources use VideoToolbox (no DVD→software switch)
+    CONFIG["encoder"] = "vt_h265_10bit"
+    CONFIG["encoder_preset"] = "quality"
+    CONFIG["encoder_level"] = "auto"
+    CONFIG["hq_mode"] = False
+
     if disc_type == "dvd":
-        # DVD: small files, software x265 is fast enough and much better quality
-        CONFIG["hq_mode"] = True
-        CONFIG["encoder"] = "x265_10bit"
-        CONFIG["quality_rf"] = 20       # Slightly less aggressive than UHD (less source detail)
-        CONFIG["encoder_preset"] = "medium"  # Fast enough for SD, negligible quality diff vs slow
-        CONFIG["encoder_level"] = "4.1"
-        CONFIG["encoder_profile"] = "main10"
         CONFIG["deinterlace"] = True
-        log.info("  Auto-tuned: DVD mode (software x265 @ RF 20 medium, deinterlace on)")
+        log.info(f"  Auto-tuned: DVD mode (VideoToolbox @ RF {CONFIG['quality_rf']}, deinterlace on)")
     elif disc_type == "bluray":
-        # 1080p Blu-ray: VideoToolbox, fast
-        CONFIG["hq_mode"] = False
-        CONFIG["encoder"] = "vt_h265_10bit"
-        CONFIG["quality_rf"] = 55
-        CONFIG["encoder_preset"] = "quality"
-        CONFIG["encoder_level"] = "auto"
         CONFIG["deinterlace"] = False
-        log.info("  Auto-tuned: Blu-ray mode (VideoToolbox @ RF 55)")
+        log.info(f"  Auto-tuned: Blu-ray mode (VideoToolbox @ RF {CONFIG['quality_rf']})")
     elif disc_type == "uhd":
-        # UHD 4K: VideoToolbox, fast, HDR passthrough
-        CONFIG["hq_mode"] = False
-        CONFIG["encoder"] = "vt_h265_10bit"
-        CONFIG["quality_rf"] = 55
-        CONFIG["encoder_preset"] = "quality"
-        CONFIG["encoder_level"] = "auto"
         CONFIG["deinterlace"] = False
-        log.info("  Auto-tuned: UHD mode (VideoToolbox @ RF 55, HDR passthrough)")
+        log.info(f"  Auto-tuned: UHD mode (VideoToolbox @ RF {CONFIG['quality_rf']})")
+        log.info("  HDR: automatic passthrough (HDR10/Dolby Vision preserved by HandBrake)")
     else:
         log.info("  Unknown source — using default settings")
 
@@ -2651,6 +2676,7 @@ def compress_mkv(input_mkv, title_name=None, output_dir=None):
         "--encoder-preset", CONFIG["encoder_preset"],
         "--encoder-profile", CONFIG["encoder_profile"],
         "--encoder-level", CONFIG["encoder_level"],
+        "--pfr",
     ]
 
     # Encoder-specific options
@@ -2667,17 +2693,22 @@ def compress_mkv(input_mkv, title_name=None, output_dir=None):
         "--non-anamorphic",
         "--crop", "0:0:0:0",
 
-        # Audio: keep ALL tracks, first lossless + AAC fallback
+        # Audio: keep ALL tracks
         "--all-audio",
-        "--aencoder", "copy,aac",
         "--audio-fallback", "aac",
-        "--mixdown", "none,stereo",
 
         # Subtitles: keep all
         "--all-subtitles",
 
         # HDR: passthrough (HandBrake auto-detects HDR10/DV metadata)
     ])
+
+    # Audio encoding based on viewing profile
+    audio_mode = CONFIG.get("audio_mode", "copy,aac")
+    if audio_mode == "aac":
+        cmd.extend(["--aencoder", "aac", "--mixdown", "stereo"])
+    else:
+        cmd.extend(["--aencoder", "copy,aac", "--mixdown", "none,stereo"])
 
     # Deinterlace (auto-enabled for DVDs)
     if CONFIG.get("deinterlace"):
@@ -3384,6 +3415,7 @@ config:
         CONFIG["encoder_tune"] = "grain"
     if args.quality:
         CONFIG["quality_rf"] = args.quality
+        CONFIG["_user_set_quality"] = True
 
     log.info("4K Blu-ray Pipeline")
     log.info(f"Output drive: {CONFIG['output_base']}")

@@ -15,7 +15,7 @@ That's it. First run walks you through setup.
 - Auto-detects disc type (movie vs TV) and source format (DVD / Blu-ray / 4K UHD)
 - Fetches metadata, posters, and fanart from TMDb
 - Hardware-accelerated encoding via VideoToolbox (or software x265 with `--hq`)
-- DVD-aware: auto-switches to software encode + deinterlace for DVD sources
+- Auto-optimized encoding per source type (DVD / Blu-ray / UHD) with viewing profiles
 - TV discs encode in parallel — episode 1 encodes while episode 2 rips
 - Per-episode Jellyfin library scans (episodes appear as they finish)
 - Preserved raw rips so you can re-encode later without re-ripping
@@ -131,6 +131,22 @@ Settings live at `~/.config/ripper/config.json`. You can:
 - Run `--show-config` to see current settings
 - Edit the JSON directly
 - Set `TMDB_API_KEY` and `JELLYFIN_API_KEY` as environment variables (overrides config)
+
+## Encoding
+
+ripper auto-optimizes encoding settings based on your source disc and viewing setup. The setup wizard (`--init`) asks for your primary display, which sets per-source quality targets:
+
+| Profile | UHD RF | BD RF | DVD RF | Audio | Best for |
+|---------|--------|-------|--------|-------|----------|
+| OLED TV | 48 | 50 | 58 | Lossless + AAC | Home theater |
+| LED TV | 50 | 52 | 60 | Lossless + AAC | Living room |
+| Tablet | 55 | 55 | 62 | AAC only | Portable |
+| Phone | 58 | 58 | 65 | AAC only | On the go |
+| Mixed | 50 | 52 | 60 | Lossless + AAC | Multiple devices |
+
+All encoding uses VideoToolbox hardware acceleration. DVDs automatically get deinterlacing. UHD discs preserve HDR10 and Dolby Vision.
+
+You can override per-source RF values in `~/.config/ripper/config.json` (`quality_rf_dvd`, `quality_rf_bd`, `quality_rf_uhd`) or use `--quality` for a one-off override. Use `--hq` to force software x265 encoding (slower, maximum quality).
 
 ## How it works
 
