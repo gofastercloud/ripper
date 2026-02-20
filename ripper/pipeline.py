@@ -150,6 +150,8 @@ def rip_disc(title_name=None):
     if size_bytes < 1_000_000:  # < 1 MB is effectively empty
         state.log.error(f"Ripped file is too small ({size_bytes} bytes) — MakeMKV likely failed.")
         state.log.error("Try ejecting and re-inserting the disc, or check MakeMKV logs.")
+        if stderr:
+            state.log.error(f"MakeMKV output: {stderr[-1000:]}")
         return None, None
 
     return mkv_file, source_info
