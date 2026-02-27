@@ -536,7 +536,7 @@ def get_disc_start_episode(title: str, season: int, disc_num: int) -> int | None
 # ============================================================================
 
 def get_disc_metadata(manual_title=None, manual_year=None, media_type=None,
-                      season=None, start_episode=None):
+                      season=None, start_episode=None, disc=None):
     """
     Main metadata resolution flow:
       1. If --title was given, use that
@@ -554,8 +554,8 @@ def get_disc_metadata(manual_title=None, manual_year=None, media_type=None,
     cache = load_metadata_cache()
     result = {
         "title": None, "year": None, "media_type": media_type or "auto",
-        "season": season, "start_episode": start_episode, "metadata": None,
-        "_user_set_type": media_type is not None,
+        "season": season, "start_episode": start_episode, "disc": disc,
+        "metadata": None, "_user_set_type": media_type is not None,
     }
 
     if manual_title:
@@ -624,12 +624,29 @@ def get_disc_metadata(manual_title=None, manual_year=None, media_type=None,
                     result["metadata"] = meta
             return result
 
-    cleaned, detected_season, _detected_disc = clean_disc_label(raw_label)
+    cleaned, detected_season, detected_disc = clean_disc_label(raw_label)
+
+    # disc= param takes priority over label-detected disc number
+    if result["disc"] is None and detected_disc is not None:
+        result["disc"] = detected_disc
+    if result["disc"] is not None:
+        state.log.info(f"  Disc number: {result['disc']}")
 
     if detected_season is not None and media_type is None:
         result["media_type"] = "tv"
         result["season"] = season or detected_season
         state.log.info(f"  Auto-detected as TV show (season {result['season']})")
+
+    # Auto-compute start_episode from disc map when disc > 1 and not explicitly set
+    if (result.get("disc") or 0) > 1 and result.get("start_episode") is None:
+        computed = get_disc_start_episode(
+            result.get("title") or cleaned or "",
+            result.get("season") or 1,
+            result["disc"],
+        )
+        if computed is not None:
+            result["start_episode"] = computed
+            state.log.info(f"  Auto-computed start_episode={computed} from disc map (disc {result['disc']})")
 
     meta = None
     if result["media_type"] == "tv":
@@ -746,8 +763,20 @@ def get_disc_metadata(manual_title=None, manual_year=None, media_type=None,
                 s = input("  Season number: ").strip()
                 result["season"] = int(s) if s.isdigit() else 1
             if not result.get("start_episode"):
-                ep = input("  Starting episode number [1]: ").strip()
-                result["start_episode"] = int(ep) if ep.isdigit() else 1
+                disc_num = result.get("disc")
+                if disc_num and disc_num > 1:
+                    # Try disc map now that we have the title
+                    computed = get_disc_start_episode(result.get("title", ""), result.get("season") or 1, disc_num)
+                    if computed is not None:
+                        result["start_episode"] = computed
+                        state.log.info(f"  Auto-computed start_episode={computed} from disc map (disc {disc_num})")
+                    else:
+                        ep = input(f"  Disc {disc_num} detected, but no disc {disc_num - 1} record found.\n"
+                                   f"  Starting episode number: ").strip()
+                        result["start_episode"] = int(ep) if ep.isdigit() else 1
+                else:
+                    ep = input("  Starting episode number [1]: ").strip()
+                    result["start_episode"] = int(ep) if ep.isdigit() else 1
 
     if result.get("metadata") and result.get("title"):
         cache[raw_label] = {

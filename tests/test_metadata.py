@@ -131,3 +131,24 @@ class TestDiscMap:
 
         result = get_disc_start_episode("Breaking Bad", 1, 2)
         assert result is None
+
+
+class TestGetDiscMetadataDisc:
+    def test_clean_disc_label_disc_s01_d2(self):
+        """SHOW_S01_D2 → season=1, disc=2."""
+        _ensure_log()
+        _, season, disc = clean_disc_label("BREAKING_BAD_S01_D2")
+        assert season == 1
+        assert disc == 2
+
+    def test_disc_param_override_detected(self, tmp_path, monkeypatch):
+        """Explicit disc= param overrides whatever label says."""
+        from ripper.metadata import get_disc_metadata
+        monkeypatch.setattr("ripper.metadata.extract_disc_label", lambda: "SHOW_S01_D1")
+        monkeypatch.setattr("ripper.metadata.tmdb_search_tv", lambda x: None)
+        monkeypatch.setattr("sys.stdin", open("/dev/null"))
+        monkeypatch.setitem(state.CONFIG, "metadata_cache", str(tmp_path / "cache.json"))
+        _ensure_log()
+
+        result = get_disc_metadata(media_type="tv", season=1, disc=2)
+        assert result["disc"] == 2
