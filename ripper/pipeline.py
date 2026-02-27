@@ -34,6 +34,7 @@ from ripper.metadata import (
     download_artwork,
     get_disc_metadata,
     tmdb_get_season_episodes,
+    update_disc_map,
     write_episode_nfo,
     write_nfo,
     write_tv_nfo,
@@ -820,6 +821,7 @@ def _run_pipeline_inner(title_name, year, media_type, meta, disc_info):
     else:
         season_num = disc_info.get("season") or 1
         ep_start = disc_info.get("start_episode") or 1
+        disc_num = disc_info.get("disc")
 
         episodes_info = []
         if meta and meta.get("tmdb_id"):
@@ -920,6 +922,9 @@ def _run_pipeline_inner(title_name, year, media_type, meta, disc_info):
             title_name, season_num, ep_start, episodes_info,
             encode_q, rip_dirs_to_clean,
         )
+
+        if disc_num is not None and ripped_episodes:
+            update_disc_map(title_name, season_num, disc_num, len(ripped_episodes))
 
         eject_disc()
 
@@ -1292,7 +1297,7 @@ def _rip_tv_to_queue(title_name, year, season_num, start_episode,
         tui.update_rip(100.0, task="All episodes ripped")
 
     state.log.info(f"  Ripped {rip_count} episodes total")
-    return rip_count > 0
+    return rip_count
 
 
 def watch_mode_continuous():
@@ -1546,6 +1551,7 @@ def watch_mode_continuous():
                     # TV show
                     season_num = disc_info.get("season") or 1
                     ep_start = disc_info.get("start_episode") or 1
+                    disc_num_watch = disc_info.get("disc")
 
                     episodes_info = []
                     if meta and meta.get("tmdb_id"):
@@ -1560,6 +1566,9 @@ def watch_mode_continuous():
                         title_name, year, season_num, ep_start,
                         episodes_info, meta, encoder_snap, encode_q, tui,
                     )
+
+                    if disc_num_watch is not None and ok:
+                        update_disc_map(title_name, season_num, disc_num_watch, ok)
 
                     # Write show-level metadata
                     if ok and meta:
