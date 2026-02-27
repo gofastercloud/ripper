@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from ripper import state
-from ripper.cleanup import cleanup_rips, repair_library, verify_rip_manifest
+from ripper.cleanup import cleanup_rips, repair_library, show_history, verify_rip_manifest
 from ripper.config import (
     _CONFIGURABLE_KEYS,
     CONFIG_PATH,
@@ -37,7 +37,7 @@ from ripper.pipeline import (
     organize_tv_episode,
     rip_disc,
     run_pipeline,
-    watch_mode,
+    watch_mode_continuous,
 )
 from ripper.tui import setup_logging
 
@@ -185,6 +185,7 @@ def main():
   uv run ripper --reencode _rips/dir     Re-encode from preserved rips
   uv run ripper --cleanup                Free space by deleting old rips
   uv run ripper --repair                 Fix missing artwork/NFO in library
+  uv run ripper --history                Show rip history
   uv run ripper --init                   Reconfigure settings
 
 config:
@@ -203,7 +204,10 @@ config:
 
     parser.add_argument("--tv", action="store_true", help="Force TV show mode")
     parser.add_argument("--season", "-s", type=int, help="Season number (for TV shows)")
-    parser.add_argument("--episode", "-e", type=int, default=1, help="Starting episode number (default: 1)")
+    parser.add_argument("--episode", "-e", type=int, default=None,
+                        help="Starting episode number (default: auto-detect from disc map, else 1)")
+    parser.add_argument("--disc", type=int, default=None,
+                        help="Disc number for multi-disc TV sets (e.g. --disc 2)")
 
     parser.add_argument("--check-drive", action="store_true", help="Only check drive compatibility")
     parser.add_argument("--watch", "-w", action="store_true", help="Watch for disc insertion and auto-rip")
@@ -221,6 +225,7 @@ config:
     parser.add_argument("--reencode", metavar="RIP_DIR", help="Re-encode from existing rips")
     parser.add_argument("--verify-rips", metavar="RIP_DIR", help="Verify rip integrity using MD5 hashes")
     parser.add_argument("--repair", action="store_true", help="Scan library for missing artwork/NFO and re-fetch")
+    parser.add_argument("--history", action="store_true", help="Show rip history")
 
     args = parser.parse_args()
 
@@ -257,6 +262,10 @@ config:
 
     if args.repair:
         repair_library()
+        return
+
+    if args.history:
+        show_history()
         return
 
     if args.verify_rips:
@@ -412,7 +421,7 @@ config:
     if args.watch:
         if not check_external_drive():
             return
-        watch_mode()
+        watch_mode_continuous()
         return
 
     if args.compress_only:
@@ -445,4 +454,5 @@ config:
         media_type=media_type,
         season=args.season,
         start_episode=args.episode,
+        disc=args.disc,
     )
