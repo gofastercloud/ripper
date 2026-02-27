@@ -144,7 +144,7 @@ class TestGetDiscMetadataDisc:
     def test_disc_param_override_detected(self, tmp_path, monkeypatch):
         """Explicit disc= param overrides whatever label says."""
         from ripper.metadata import get_disc_metadata
-        monkeypatch.setattr("ripper.metadata.extract_disc_label", lambda: "SHOW_S01_D1")
+        monkeypatch.setattr("ripper.metadata.extract_disc_label", lambda: "SHOW_S01_D3")
         monkeypatch.setattr("ripper.metadata.tmdb_search_tv", lambda x: None)
         monkeypatch.setattr("sys.stdin", open("/dev/null"))
         monkeypatch.setitem(state.CONFIG, "metadata_cache", str(tmp_path / "cache.json"))

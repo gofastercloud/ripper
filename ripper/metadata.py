@@ -637,17 +637,6 @@ def get_disc_metadata(manual_title=None, manual_year=None, media_type=None,
         result["season"] = season or detected_season
         state.log.info(f"  Auto-detected as TV show (season {result['season']})")
 
-    # Auto-compute start_episode from disc map when disc > 1 and not explicitly set
-    if (result.get("disc") or 0) > 1 and result.get("start_episode") is None:
-        computed = get_disc_start_episode(
-            result.get("title") or cleaned or "",
-            result.get("season") or 1,
-            result["disc"],
-        )
-        if computed is not None:
-            result["start_episode"] = computed
-            state.log.info(f"  Auto-computed start_episode={computed} from disc map (disc {result['disc']})")
-
     meta = None
     if result["media_type"] == "tv":
         meta = tmdb_search_tv(cleaned) if cleaned else None
@@ -664,6 +653,16 @@ def get_disc_metadata(manual_title=None, manual_year=None, media_type=None,
         result["title"] = meta["title"]
         result["year"] = meta.get("year")
         result["metadata"] = meta
+        # Auto-compute start_episode from disc map (title now resolved)
+        if (result.get("disc") or 0) > 1 and result.get("start_episode") is None:
+            computed = get_disc_start_episode(
+                result["title"],
+                result.get("season") or 1,
+                result["disc"],
+            )
+            if computed is not None:
+                result["start_episode"] = computed
+                state.log.info(f"  Auto-computed start_episode={computed} from disc map (disc {result['disc']})")
     elif sys.stdin.isatty():
         state.log.warning(f"  No TMDb match for disc label '{raw_label}'.")
         print(f"\n  The disc label '{raw_label}' didn't match anything on TMDb.")
@@ -762,7 +761,7 @@ def get_disc_metadata(manual_title=None, manual_year=None, media_type=None,
             if not result.get("season"):
                 s = input("  Season number: ").strip()
                 result["season"] = int(s) if s.isdigit() else 1
-            if not result.get("start_episode"):
+            if result.get("start_episode") is None:
                 disc_num = result.get("disc")
                 if disc_num and disc_num > 1:
                     # Try disc map now that we have the title
