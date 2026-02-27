@@ -1,5 +1,6 @@
 """Tests for ripper.metadata."""
 
+import io
 import json
 import logging
 import xml.etree.ElementTree as ET
@@ -151,7 +152,7 @@ class TestGetDiscMetadataDisc:
         from ripper.metadata import get_disc_metadata
         monkeypatch.setattr("ripper.metadata.extract_disc_label", lambda: "SHOW_S01_D3")
         monkeypatch.setattr("ripper.metadata.tmdb_search_tv", lambda x: None)
-        monkeypatch.setattr("sys.stdin", open("/dev/null"))
+        monkeypatch.setattr("sys.stdin", io.StringIO(""))
         monkeypatch.setitem(state.CONFIG, "metadata_cache", str(tmp_path / "cache.json"))
         _ensure_log()
 

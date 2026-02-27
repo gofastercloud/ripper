@@ -613,6 +613,9 @@ def get_disc_metadata(manual_title=None, manual_year=None, media_type=None,
         else:
             state.log.info(f"  Cache hit: {cached['title']} ({cached.get('year')})")
             result.update(cached)
+            # Restore disc number from parameter (result.update may not include it)
+            if disc is not None:
+                result["disc"] = disc
             tmdb_id = cached.get("tmdb_id")
             if tmdb_id:
                 mtype = cached.get("media_type", "movie")
@@ -622,6 +625,16 @@ def get_disc_metadata(manual_title=None, manual_year=None, media_type=None,
                     meta = tmdb_search(cached["title"])
                 if meta:
                     result["metadata"] = meta
+            # Auto-compute start_episode from disc map for cache-hit TV discs
+            if (result.get("disc") or 0) > 1 and result.get("start_episode") is None and result.get("title"):
+                computed = get_disc_start_episode(
+                    result["title"],
+                    result.get("season") or 1,
+                    result["disc"],
+                )
+                if computed is not None:
+                    result["start_episode"] = computed
+                    state.log.info(f"  Auto-computed start_episode={computed} from disc map (disc {result['disc']})")
             return result
 
     cleaned, detected_season, detected_disc = clean_disc_label(raw_label)
@@ -786,6 +799,13 @@ def get_disc_metadata(manual_title=None, manual_year=None, media_type=None,
             "tmdb_id": result.get("metadata", {}).get("tmdb_id"),
         }
         save_metadata_cache(cache)
+
+    # Warn if disc > 1 but start_episode is still unknown (headless/non-TTY mode)
+    if (result.get("disc") or 0) > 1 and result.get("start_episode") is None and not sys.stdin.isatty():
+        state.log.warning(
+            f"  Disc {result['disc']} detected but no disc {result['disc'] - 1} record found in cache. "
+            f"Defaulting start_episode to 1. Pass --episode to override."
+        )
 
     return result
 
