@@ -12,6 +12,7 @@ Ripper is a Python CLI tool that automates ripping physical media (Blu-ray 4K UH
 uv run ripper                           # Auto-detect and rip inserted disc
 uv run ripper --title "The Matrix"      # Specific title
 uv run ripper --tv --season 2           # TV disc
+uv run ripper --tv --season 1 --disc 2     # Disc 2 of a TV season (auto-computes start episode)
 uv run ripper --hq                      # Software x265 (slower, best quality)
 uv run ripper --status                  # Check drive, Jellyfin, API keys
 uv run ripper --init                    # Reconfigure settings
