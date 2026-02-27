@@ -1,10 +1,12 @@
 """Tests for ripper.metadata."""
 
+import json
 import logging
 import xml.etree.ElementTree as ET
 
 from ripper import state
 from ripper.metadata import clean_disc_label, tmdb_search, write_nfo
+from ripper.metadata import update_disc_map, get_disc_start_episode
 
 
 def _ensure_log():
@@ -72,3 +74,60 @@ class TestWriteNfo:
         assert root.find("uniqueid").text == "603"
         assert root.find("genre").text == "Action"
         assert root.find("director").text == "Lana Wachowski"
+
+
+class TestDiscMap:
+    def test_update_disc_map_creates_entry(self, tmp_path, monkeypatch):
+        """update_disc_map writes disc episode count into cache _disc_maps."""
+        cache_file = tmp_path / "cache.json"
+        monkeypatch.setitem(state.CONFIG, "metadata_cache", str(cache_file))
+        _ensure_log()
+
+        update_disc_map("Breaking Bad", 1, 1, 4)
+
+        data = json.loads(cache_file.read_text())
+        assert data["_disc_maps"]["Breaking Bad::S01"]["1"] == 4
+
+    def test_update_disc_map_overwrites_existing(self, tmp_path, monkeypatch):
+        """update_disc_map overwrites a previous count for the same disc."""
+        cache_file = tmp_path / "cache.json"
+        monkeypatch.setitem(state.CONFIG, "metadata_cache", str(cache_file))
+        _ensure_log()
+
+        update_disc_map("Breaking Bad", 1, 1, 3)
+        update_disc_map("Breaking Bad", 1, 1, 4)
+
+        data = json.loads(cache_file.read_text())
+        assert data["_disc_maps"]["Breaking Bad::S01"]["1"] == 4
+
+    def test_get_disc_start_episode_returns_correct_offset(self, tmp_path, monkeypatch):
+        """Disc 2 start = sum of all disc 1 episodes + 1."""
+        cache_file = tmp_path / "cache.json"
+        monkeypatch.setitem(state.CONFIG, "metadata_cache", str(cache_file))
+        _ensure_log()
+
+        update_disc_map("Breaking Bad", 1, 1, 4)
+
+        result = get_disc_start_episode("Breaking Bad", 1, 2)
+        assert result == 5
+
+    def test_get_disc_start_episode_sums_multiple_discs(self, tmp_path, monkeypatch):
+        """Disc 3 start = sum of discs 1 + 2 + 1."""
+        cache_file = tmp_path / "cache.json"
+        monkeypatch.setitem(state.CONFIG, "metadata_cache", str(cache_file))
+        _ensure_log()
+
+        update_disc_map("Breaking Bad", 1, 1, 4)
+        update_disc_map("Breaking Bad", 1, 2, 4)
+
+        result = get_disc_start_episode("Breaking Bad", 1, 3)
+        assert result == 9
+
+    def test_get_disc_start_episode_returns_none_on_missing_data(self, tmp_path, monkeypatch):
+        """Returns None when disc 1 data isn't in the cache yet."""
+        cache_file = tmp_path / "cache.json"
+        monkeypatch.setitem(state.CONFIG, "metadata_cache", str(cache_file))
+        _ensure_log()
+
+        result = get_disc_start_episode("Breaking Bad", 1, 2)
+        assert result is None

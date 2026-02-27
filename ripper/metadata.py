@@ -24,7 +24,7 @@ def extract_disc_label():
     makemkv = CONFIG["makemkv_bin"]
     state.log.info("Reading disc volume label...")
 
-    result = run_cmd([makemkv, "-r", "info", "disc:0"], timeout=120)
+    result = run_cmd([makemkv, "-r", "info", "disc:0"], timeout=300)
     if result is None:
         return None
 
@@ -497,6 +497,40 @@ def save_metadata_cache(cache):
     cache_path.write_text(json.dumps(cache, indent=2))
 
 
+def update_disc_map(title: str, season: int, disc_num: int, episode_count: int) -> None:
+    """Record how many episodes were on a given disc, for future start_episode calculation."""
+    cache = load_metadata_cache()
+    disc_maps = cache.setdefault("_disc_maps", {})
+    key = f"{title}::S{season:02d}"
+    disc_entry = disc_maps.setdefault(key, {})
+    disc_entry[str(disc_num)] = episode_count
+    save_metadata_cache(cache)
+    state.log.info(f"  Disc map updated: {key} disc {disc_num} = {episode_count} episodes")
+
+
+def get_disc_start_episode(title: str, season: int, disc_num: int) -> int | None:
+    """
+    Return the starting episode number for disc_num, based on cached disc episode counts.
+    Sums episodes from discs 1 through disc_num-1.
+    Returns None if any prior disc data is missing.
+    """
+    if disc_num <= 1:
+        return 1
+    cache = load_metadata_cache()
+    disc_maps = cache.get("_disc_maps", {})
+    key = f"{title}::S{season:02d}"
+    entry = disc_maps.get(key, {})
+
+    total = 0
+    for d in range(1, disc_num):
+        count = entry.get(str(d))
+        if count is None:
+            state.log.warning(f"  No disc map entry for {key} disc {d} — can't auto-compute start_episode")
+            return None
+        total += count
+    return total + 1
+
+
 # ============================================================================
 # MAIN METADATA RESOLUTION
 # ============================================================================
@@ -560,18 +594,35 @@ def get_disc_metadata(manual_title=None, manual_year=None, media_type=None,
 
     if raw_label in cache:
         cached = cache[raw_label]
-        state.log.info(f"  Cache hit: {cached['title']} ({cached.get('year')})")
-        result.update(cached)
-        tmdb_id = cached.get("tmdb_id")
-        if tmdb_id:
-            mtype = cached.get("media_type", "movie")
-            if mtype == "tv":
+        cached_type = cached.get("media_type", "movie")
+
+        # For TV shows with identical disc labels across seasons,
+        # use the cache for title/TMDb lookup but let the user set the season
+        if cached_type == "tv" and sys.stdin.isatty():
+            state.log.info(f"  Cache hit: {cached['title']} ({cached.get('year')}) [TV]")
+            state.log.info(f"  (Previously ripped as Season {cached.get('season', '?')})")
+            result["title"] = cached["title"]
+            result["year"] = cached.get("year")
+            result["media_type"] = "tv"
+            tmdb_id = cached.get("tmdb_id")
+            if tmdb_id:
                 meta = tmdb_search_tv(cached["title"])
-            else:
-                meta = tmdb_search(cached["title"])
-            if meta:
-                result["metadata"] = meta
-        return result
+                if meta:
+                    result["metadata"] = meta
+            # Don't auto-apply the cached season — ask the user below
+        else:
+            state.log.info(f"  Cache hit: {cached['title']} ({cached.get('year')})")
+            result.update(cached)
+            tmdb_id = cached.get("tmdb_id")
+            if tmdb_id:
+                mtype = cached.get("media_type", "movie")
+                if mtype == "tv":
+                    meta = tmdb_search_tv(cached["title"])
+                else:
+                    meta = tmdb_search(cached["title"])
+                if meta:
+                    result["metadata"] = meta
+            return result
 
     cleaned, detected_season, _detected_disc = clean_disc_label(raw_label)
 
